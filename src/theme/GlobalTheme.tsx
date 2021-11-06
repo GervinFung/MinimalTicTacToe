@@ -1,4 +1,17 @@
-import { createGlobalStyle } from 'styled-components';
+import styled, { createGlobalStyle } from 'styled-components';
+
+export const FullScreenContainer = styled.div`
+    position: fixed;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
+    left: 0;
+    top: 0;
+    overflow: auto;
+    align-items: center;
+    justify-content: center;
+    display: flex;
+`;
 
 const GlobalStyle = createGlobalStyle`
     body {
@@ -14,7 +27,7 @@ const GlobalStyle = createGlobalStyle`
     * {
         scrollbar-width: thin;
         scrollbar-color: gray ${({ theme }) => theme.theme.scrollBarBackground};
-        font-family: Consolas, monaco, monospace;
+        font-family: 'Roboto', sans-serif;
     }
     *::-webkit-scrollbar {
         width: 7px;

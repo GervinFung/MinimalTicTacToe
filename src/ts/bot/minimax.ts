@@ -4,7 +4,14 @@ import Move from '../move';
 import { makeMoveFromMoves } from '../player';
 import { evaluate } from './evaluator';
 
-const min = (board: Board, depth: number, highestValue: number, lowestValue: number, dimension: number, immutableDepth: number): number => {
+const min = (
+    board: Board,
+    depth: number,
+    highestValue: number,
+    lowestValue: number,
+    dimension: number,
+    immutableDepth: number
+): number => {
     if (checkmate(board)) {
         return 10 - depth;
     }
@@ -18,7 +25,17 @@ const min = (board: Board, depth: number, highestValue: number, lowestValue: num
     const currentPlayer = board.currentPlayer;
     for (const move of currentPlayer.legalMoves) {
         const latestBoard = makeMoveFromMoves(move, board);
-        currentLowest = Math.min(currentLowest, max(latestBoard, depth - 1, highestValue, currentLowest, dimension, immutableDepth));
+        currentLowest = Math.min(
+            currentLowest,
+            max(
+                latestBoard,
+                depth - 1,
+                highestValue,
+                currentLowest,
+                dimension,
+                immutableDepth
+            )
+        );
         if (currentLowest <= highestValue) {
             return highestValue;
         }
@@ -26,7 +43,14 @@ const min = (board: Board, depth: number, highestValue: number, lowestValue: num
     return currentLowest;
 };
 
-const max = (board: Board, depth: number, highestValue: number, lowestValue: number, dimension: number, immutableDepth: number): number => {
+const max = (
+    board: Board,
+    depth: number,
+    highestValue: number,
+    lowestValue: number,
+    dimension: number,
+    immutableDepth: number
+): number => {
     if (checkmate(board)) {
         return depth - 10;
     }
@@ -40,7 +64,17 @@ const max = (board: Board, depth: number, highestValue: number, lowestValue: num
     const currentPlayer = board.currentPlayer;
     for (const move of currentPlayer.legalMoves) {
         const latestBoard = makeMoveFromMoves(move, board);
-        currentHighest = Math.max(currentHighest, min(latestBoard, depth - 1, currentHighest, lowestValue, dimension, immutableDepth));
+        currentHighest = Math.max(
+            currentHighest,
+            min(
+                latestBoard,
+                depth - 1,
+                currentHighest,
+                lowestValue,
+                dimension,
+                immutableDepth
+            )
+        );
         if (currentHighest >= lowestValue) {
             return lowestValue;
         }
@@ -51,26 +85,43 @@ const max = (board: Board, depth: number, highestValue: number, lowestValue: num
 export const execute = (board: Board, depth = 4): Move => {
     const currentPlayer = board.currentPlayer;
     const dimension = Math.sqrt(board.numberOfTiles);
-    let highestSeenValue = Number.NEGATIVE_INFINITY, lowestSeenValue = Number.POSITIVE_INFINITY;
+    let highestSeenValue = Number.NEGATIVE_INFINITY,
+        lowestSeenValue = Number.POSITIVE_INFINITY;
     let bestMove: Move | null = null;
 
     for (const move of currentPlayer.legalMoves) {
         const latestBoard = makeMoveFromMoves(move, board);
         if (checkmate(latestBoard)) {
-            if (bestMove === null) {
-                throw new Error('best move cannot be null');
-            }
-            return bestMove;
+            return move;
         }
-        const currentVal = isFirstPlayer(currentPlayer.league) ?
-            min(latestBoard, depth - 1, highestSeenValue, lowestSeenValue, dimension, depth) :
-            max(latestBoard, depth - 1, highestSeenValue, lowestSeenValue, dimension, depth);
-        
-        if (isFirstPlayer(currentPlayer.league) && currentVal > highestSeenValue) {
+        const currentVal = isFirstPlayer(currentPlayer.league)
+            ? min(
+                  latestBoard,
+                  depth - 1,
+                  highestSeenValue,
+                  lowestSeenValue,
+                  dimension,
+                  depth
+              )
+            : max(
+                  latestBoard,
+                  depth - 1,
+                  highestSeenValue,
+                  lowestSeenValue,
+                  dimension,
+                  depth
+              );
+
+        if (
+            isFirstPlayer(currentPlayer.league) &&
+            currentVal > highestSeenValue
+        ) {
             highestSeenValue = currentVal;
             bestMove = move;
-        }
-        else if (!isFirstPlayer(currentPlayer.league) && currentVal < lowestSeenValue) {
+        } else if (
+            !isFirstPlayer(currentPlayer.league) &&
+            currentVal < lowestSeenValue
+        ) {
             lowestSeenValue = currentVal;
             bestMove = move;
         }

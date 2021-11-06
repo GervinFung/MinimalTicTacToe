@@ -6,6 +6,8 @@ const darkTheme: Theme = {
     secondaryColor: '#FEFEFE',
     hoverColor: '#000000B3',
     scrollBarBackground: '#000D0D',
+    tertiaryColor: '#BfA75D',
+    horizontalLine: '#3E3E42',
 };
 
 const lightTheme: Theme = {
@@ -13,17 +15,22 @@ const lightTheme: Theme = {
     secondaryColor: '#121212',
     hoverColor: '#0000001A',
     scrollBarBackground: '#F5F5F5',
+    tertiaryColor: '#007ACC',
+    horizontalLine: '#C9C9C9',
 };
 
 export const primaryTheme: DefaultTheme = {
     theme: darkTheme,
+    pink: '#E91E63',
 };
 
 export const secondaryTheme: DefaultTheme = {
     theme: lightTheme,
+    pink: '#E91E63',
 };
 
-export const getTheme = (theme: DefaultTheme) => isPrimary(theme) ? secondaryTheme : primaryTheme;
+export const getTheme = (theme: DefaultTheme) =>
+    isPrimary(theme) ? secondaryTheme : primaryTheme;
 export const isPrimary = (theme: DefaultTheme) => theme.theme === darkTheme;
 
 export const KEY = '8bf5222d-ABAS912-038e-4dfd-ab93-ab6267f8dc55';

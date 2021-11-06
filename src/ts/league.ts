@@ -1,5 +1,6 @@
 enum League {
-    FIRST, SECOND
+    FIRST,
+    SECOND,
 }
 
 export const isFirstPlayer = (league: League) => league === League.FIRST;

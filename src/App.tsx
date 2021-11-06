@@ -1,353 +1,583 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import styled, { css, ThemeProvider } from 'styled-components';
-import { FaSun, FaMoon } from 'react-icons/fa';
-import { primaryTheme, getTheme, isPrimary, secondaryTheme, KEY, PRIMARY, SECONDARY } from './theme/colorTheme';
+import * as React from 'react';
+import styled, { ThemeProvider } from 'styled-components';
+import { secondaryTheme } from './theme/colorTheme';
 import GlobalStyle from './theme/GlobalTheme';
-import Board, { checkmate, stalemate, createStandardBoard } from './ts/board';
+import Board, {
+    checkmate,
+    stalemate,
+    createStandardBoard,
+    restoreBoardFromMoveLog,
+    restoreBoardFromRemovedMoveLog,
+} from './ts/board';
+import {
+    makeMoveFromTileNumber,
+    getMoveFromTileNumber,
+    makeMove,
+} from './ts/player';
+import { moveNotation, MoveNotation } from './ts/move';
+import TicTacToe from './components/main/TicTacToe';
+import MoveHistory from './components/main/MoveHistory';
+import Setting from './components/main/Setting';
+import MultiChoiceAlert from './components/popup/Alert';
+import LoadGamePopup from './components/popup/LoadGamePopup';
+import {
+    MinimaxOption,
+    GridOption,
+    GameOption,
+    MoveOption,
+    PlayerOption,
+    Resources,
+} from './type/GameType';
 import { isFirstPlayer } from './ts/league';
-import { makeMove, makeMoveFromTileNumber, getMoveFromTileNumber } from './ts/player';
 import { execute } from './ts/bot/minimax';
-import { moveNotation } from './ts/move';
+import AlertProperty, { ActionType } from './type/AlertType';
 
-type TicTacToeMessage = 'O Has Won!' | 'X Has Won!' | 'Game Started...' | 'Game Running...' | 'Game Drawn!' | 'AI Thinking...';
-
-interface GameTileListener {
-    readonly updateBoard: (index: number) => void;
+type State = {
     readonly board: Board;
-}
+    readonly moveLog: ReadonlyArray<MoveNotation>;
+    readonly gridOption: GridOption;
+    readonly minimaxOption: MinimaxOption | undefined;
+    readonly gameOption: GameOption | undefined;
+    readonly moveOption: MoveOption | undefined;
+    readonly playerOption: PlayerOption;
+    readonly alertProperty: AlertProperty;
+    readonly showLoadGamePopup: boolean;
+    readonly redo: ReadonlyArray<Redo>;
+};
 
-interface TileNumber {
-    readonly tileNumber: number;
-}
-
-const TicTacToe = ({ updateBoard, board }: GameTileListener): JSX.Element => {
-
-    const CreateColumns = ({ tileNumber }: TileNumber): JSX.Element => {
-        const columns = [];
-        const dimension = Math.sqrt(board.numberOfTiles);
-        for (let i = 0; i < dimension; i++) {
-            const index = tileNumber * dimension + i;
-            const tile = board.tileList[index];
-            if (tile.isTileOccupied && tile.getPiece !== null) {
-                const word = isFirstPlayer(tile.getPiece.league) ? 'X' : 'O';
-                columns.push(<TicTacToeTile key={index} onClick={() => updateBoard(index)}>{word}</TicTacToeTile>);
-            } else {
-                columns.push(<TicTacToeTile key={index} onClick={() => updateBoard(index)}/>);
-            }
-        }
-        return <tr key={tileNumber * tileNumber}>{columns}</tr>;
-    };
-
-    const CreateRows = (): JSX.Element => {
-        const dimension = Math.sqrt(board.numberOfTiles);
-        const rows = [];
-        for (let i = 0; i < dimension; i++) {
-            rows.push(<CreateColumns key={i} tileNumber={i}/>);
-            rows.push(<tr key={`${i}${i}${i}`}/>);
-        }
-        return <table><tbody>{rows}</tbody></table>;
-    };
-
-    return (
-        <CreateRows/>
-    );
-}
-
-interface GameLabelProps {
-    readonly checked: boolean;
-    readonly side: 'O' | 'X';
-    readonly onChange: () => void;
-}
-
-const AppGameLabel = ({ checked, side, onChange }: GameLabelProps) => (
-    <div>
-        <GameLabel>{side} as AI:
-            <input type='checkbox' checked={checked} onChange={onChange}/>
-        </GameLabel>
-    </div>
-);
-
-interface SelectorProps {
-    readonly valueList: ReadonlyArray<number>;
-    readonly dimension: number;
-    readonly updateDimension: (dimension: number) => void;
-}
-
-const Selector = ({ valueList, dimension, updateDimension }: SelectorProps) => (
-    <Chooser>
-        <ChooseSelect value={dimension} onChange={e => updateDimension(parseInt(e.target.value, 10))}>
-            {valueList.map(value => <option key={value}>{value}</option>)}
-        </ChooseSelect>
-    </Chooser>
-);
-
-interface MoveHistory {
-    readonly moveNotation: string;
+type Patchable = {
     readonly board: Board;
-}
+} & Resources;
+
+type Redo = {
+    readonly removedMoveLog: ReadonlyArray<MoveNotation>;
+};
 
 const App = () => {
+    const grid = 5;
+    const key = 'e77dd85c-255e-424f-bea3-14360a5a84c6';
 
-    const [theme, setTheme] = useState(() => {
-        const value = localStorage.getItem(KEY);
-        return value === SECONDARY ? secondaryTheme : primaryTheme;
+    const patchLocalToGame = (): Patchable => {
+        const game = localStorage.getItem(key);
+        if (game === null) {
+            return {
+                moveLog: [],
+                board: createStandardBoard(grid * grid),
+                gridOption: grid,
+                minimaxOption: undefined,
+                playerOption: {
+                    crossAI: false,
+                    noughtAI: false,
+                },
+            };
+        }
+        try {
+            return patchGameFromResource(JSON.parse(game));
+        } catch (e: any) {
+            return {
+                moveLog: [],
+                board: createStandardBoard(grid * grid),
+                gridOption: grid,
+                minimaxOption: undefined,
+                playerOption: {
+                    crossAI: false,
+                    noughtAI: false,
+                },
+            };
+        }
+    };
+
+    const patchGameFromResource = ({
+        moveLog,
+        gridOption,
+        minimaxOption,
+        playerOption,
+    }: Resources): Patchable => ({
+        moveLog,
+        board: restoreBoardFromMoveLog({
+            gridOption,
+            moveLog,
+        }),
+        gridOption,
+        minimaxOption,
+        playerOption,
     });
 
-    const [dimension, setDimension] = useState(3);
-    const [depth, setDepth] = useState(4);
-    const [board, setBoard] = useState(createStandardBoard(dimension * dimension));
-    const [firstPlayerAI, setFirstPlayerAI] = useState(false);
-    const [secondPlayerAI, setSecondPlayerAI] = useState(false);
-    const [message, setMessage] = useState<TicTacToeMessage>('Game Running...');
-    const [moveList, setMoveList] = useState<Array<MoveHistory>>([]);
+    const [state, setState] = React.useState<State>({
+        ...patchLocalToGame(),
+        gameOption: undefined,
+        moveOption: undefined,
+        alertProperty: undefined,
+        showLoadGamePopup: false,
+        redo: [],
+    });
 
-    const updateBoard = useCallback((tileNumber: number, board: Board) => {
-        if (checkmate(board) || stalemate(board) || board.tileList[tileNumber].isTileOccupied) {
+    const {
+        board,
+        moveLog,
+        gridOption,
+        minimaxOption,
+        gameOption,
+        moveOption,
+        alertProperty,
+        playerOption,
+        showLoadGamePopup,
+    } = state;
+
+    React.useEffect(() => {
+        const handleResizeWindow = () => {
+            setState((prevState) => ({
+                ...prevState,
+                width: window.innerWidth,
+            }));
+        };
+        window.addEventListener('resize', handleResizeWindow);
+        return () => {
+            window.removeEventListener('resize', handleResizeWindow);
+        };
+    }, []);
+
+    React.useEffect(() => {
+        const {
+            board,
+            playerOption: { crossAI, noughtAI },
+            minimaxOption,
+        } = state;
+        if (stalemate(board) || checkmate(board)) {
+            return;
+        }
+        localStorage.setItem(key, stringifyGame());
+        const { currentPlayer } = board;
+        const first = isFirstPlayer(currentPlayer.league) && crossAI;
+        const second = !isFirstPlayer(currentPlayer.league) && noughtAI;
+        if ((first || second) && minimaxOption) {
+            const move = execute(board, minimaxOption);
+            const latestBoard = makeMove(board, move.piece);
+            setState((prevState) => {
+                const { moveLog } = prevState;
+                return {
+                    ...prevState,
+                    board: latestBoard,
+                    moveLog: [...moveLog, moveNotation(move, gridOption)],
+                    redo: [],
+                };
+            });
+        }
+    }, [board, minimaxOption, playerOption]);
+
+    React.useEffect(() => {
+        const { board } = state;
+        if (stalemate(board)) {
+            showEndGameAlert({
+                type: 'draw',
+            });
+            return;
+        }
+        if (checkmate(board)) {
+            showEndGameAlert({
+                type: 'won',
+                side: isFirstPlayer(board.currentPlayer.opponentLeague)
+                    ? 'X'
+                    : 'O',
+            });
+            return;
+        }
+    }, [board]);
+
+    const stringifyGame = () => {
+        const resources: Resources = {
+            gridOption,
+            moveLog,
+            playerOption,
+            minimaxOption,
+        };
+        return JSON.stringify(resources, null, 2);
+    };
+
+    const restoreGameFromFile = (resources: Resources) => {
+        setState((prevState) => ({
+            ...prevState,
+            ...patchGameFromResource(resources),
+        }));
+    };
+
+    const updateGridOption = (grid: GridOption) => {
+        setState((prevState) => ({
+            ...prevState,
+            alertProperty: {
+                type: 'Grid',
+                gridOption: grid,
+                requireButton: true,
+                content:
+                    'Confirm to download current game and start a new game',
+            },
+        }));
+    };
+
+    const showEndGameAlert = (
+        prop:
+            | {
+                  readonly type: 'draw';
+              }
+            | {
+                  readonly type: 'won';
+                  readonly side: 'X' | 'O';
+              }
+    ) => {
+        setState((prevState) => ({
+            ...prevState,
+            alertProperty: {
+                type: 'End',
+                requireButton: false,
+                content:
+                    prop.type === 'draw'
+                        ? "It's a tie"
+                        : `${prop.side} has won the game`,
+            },
+        }));
+    };
+
+    const updateMinimaxOption = (minimax: MinimaxOption) => {
+        setState((prevState) => ({
+            ...prevState,
+            minimaxOption: minimax,
+        }));
+    };
+
+    const updateGameOption = (gameOption: GameOption) => {
+        setState((prevState) => ({
+            ...prevState,
+            gameOption,
+        }));
+        switch (gameOption) {
+            case 'New Game':
+                setGameOptionState(
+                    gameOption,
+                    'Confirm to download current game and start a new game'
+                );
+                break;
+            case 'Download Current Game':
+                downloadSavedGame();
+                break;
+            case 'Load Game':
+                setGameOptionState(
+                    gameOption,
+                    'Confirm to download current game and load downloaded game'
+                );
+                break;
+        }
+    };
+
+    const updateMoveOption = (moveOption: MoveOption) => {
+        switch (moveOption) {
+            case 'Redo Move': {
+                restoreBoardFromRemovedMoveLog;
+                setState((prevState) => {
+                    const { board, redo, gridOption } = prevState;
+                    const restoreMoves = redo[redo.length - 1];
+                    if (restoreMoves) {
+                        const { removedMoveLog } = restoreMoves;
+                        return {
+                            ...prevState,
+                            moveOption,
+                            board: restoreBoardFromRemovedMoveLog({
+                                gridOption,
+                                removedMoveLog,
+                                board,
+                            }),
+                            redo: redo.filter(
+                                (_, index, arr) => index !== arr.length - 1
+                            ),
+                            moveLog: [...moveLog, ...removedMoveLog],
+                        };
+                    }
+                    return {
+                        ...prevState,
+                    };
+                });
+                break;
+            }
+            case 'Undo Move':
+                setState((prevState) => {
+                    const { moveLog, redo, gridOption } = prevState;
+                    const index = moveLog.length - 2;
+                    const filteredMoveLog = moveLog.filter(
+                        (_, i) => i <= index
+                    );
+                    const removedMoveLog = moveLog.filter((_, i) => i > index);
+                    return {
+                        ...prevState,
+                        moveOption,
+                        moveLog: filteredMoveLog,
+                        redo: [
+                            ...redo,
+                            {
+                                removedMoveLog,
+                            },
+                        ],
+                        board: restoreBoardFromMoveLog({
+                            gridOption,
+                            moveLog: filteredMoveLog,
+                        }),
+                    };
+                });
+                break;
+        }
+    };
+
+    const updatePlayerOption = (playerOption: PlayerOption) => {
+        setState((prevState) => ({
+            ...prevState,
+            playerOption,
+        }));
+    };
+
+    const updateTicTacToeBoard = (tileNumber: number) => {
+        const { board } = state;
+        if (stalemate(board)) {
+            showEndGameAlert({
+                type: 'draw',
+            });
+            return;
+        }
+        if (checkmate(board)) {
+            showEndGameAlert({
+                type: 'won',
+                side: isFirstPlayer(board.currentPlayer.opponentLeague)
+                    ? 'X'
+                    : 'O',
+            });
+            return;
+        }
+        if (board.tileList[tileNumber].isTileOccupied) {
             return;
         }
         const move = getMoveFromTileNumber(tileNumber, board);
         const latestBoard = makeMoveFromTileNumber(tileNumber, board);
-        setBoard(latestBoard);
-        const newMoveHistory: MoveHistory = {
-            moveNotation: moveNotation(move, dimension),
-            board: latestBoard
-        };
-        setMoveList(oldArray => [...oldArray, newMoveHistory]);
-    }, [dimension]);
-
-    const updateTicTacToeBoard = useCallback((tileNumber: number) => updateBoard(tileNumber, board), [board, updateBoard]);
-
-    const [gameBoard, setGameBoard] = useState(<TicTacToe updateBoard={updateTicTacToeBoard} board={board}/>);
-
-    useEffect(() => {
-        localStorage.setItem(KEY, isPrimary(theme) ? PRIMARY : SECONDARY);
-    }, [theme]);
-
-    useEffect(() => {
-        setGameBoard((<TicTacToe updateBoard={updateTicTacToeBoard} board={board}/>));
-    }, [board, updateTicTacToeBoard]);
-
-    useEffect(() => {
-        if (checkmate(board)) {
-            const word = isFirstPlayer(board.currentPlayer.opponentLeague) ? 'X' : 'O';
-            setMessage(`${word} Has Won!`);
-            return;
-        } else if (stalemate(board)) {
-            setMessage('Game Drawn!');
-            return;
-        }
-        const first = isFirstPlayer(board.currentPlayer.league) && firstPlayerAI;
-        const second = !isFirstPlayer(board.currentPlayer.league) && secondPlayerAI;
-        if (first || second) {
-            const move = execute(board, depth);
-            const latestBoard = makeMove(board, move.piece);
-            setBoard(latestBoard);
-            const newMoveHistory: MoveHistory = {
-                moveNotation: moveNotation(move, dimension),
-                board: latestBoard
+        setState((prevState) => {
+            const { moveLog, gridOption } = prevState;
+            return {
+                ...prevState,
+                board: latestBoard,
+                moveLog: [...moveLog, moveNotation(move, gridOption)],
+                redo: [],
             };
-            setMoveList(oldArray => [...oldArray, newMoveHistory]);
-        }
-    }, [board, firstPlayerAI, secondPlayerAI, depth, dimension]);
-
-    const reset = (dimension: number) => {
-        setBoard(createStandardBoard(dimension * dimension));
-        setFirstPlayerAI(false);
-        setSecondPlayerAI(false);
-        setMoveList([]);
-        setMessage('Game Running...');
+        });
     };
 
-    const updateDimension = (dimension: number) => {
-        if (window.confirm('resetting dimension requires restarting the game.\nDo you want to restart the game?')) {
-            setDimension(dimension);
-            reset(dimension);
+    const downloadSavedGame = () => {
+        const file = new Blob([stringifyGame()], { type: 'application/json' });
+        const a = document.createElement('a');
+        const url = window.URL.createObjectURL(file);
+        a.href = url;
+        a.style.display = 'none';
+        a.download = 'minimalTicTacToe.json';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+    };
+
+    const updateAfterSetting = (isDownload: boolean) => {
+        setState((prevState) => {
+            const { alertProperty } = prevState;
+            if (alertProperty) {
+                const { type } = alertProperty;
+                switch (type) {
+                    case 'Grid':
+                    case 'New Game': {
+                        if (isDownload) {
+                            downloadSavedGame();
+                        }
+                        const { gridOption } = prevState;
+                        const grid =
+                            type === 'Grid'
+                                ? alertProperty.gridOption
+                                : gridOption;
+                        return {
+                            ...prevState,
+                            alertProperty: undefined,
+                            board: createStandardBoard(grid * grid),
+                            moveLog: [],
+                            gridOption: grid,
+                        };
+                    }
+                    case 'Load Game':
+                        if (isDownload) {
+                            downloadSavedGame();
+                        }
+                        setState((prevState) => {
+                            const { showLoadGamePopup } = prevState;
+                            return {
+                                ...prevState,
+                                alertProperty: undefined,
+                                showLoadGamePopup: !showLoadGamePopup,
+                            };
+                        });
+                        break;
+                    case 'Download Current Game':
+                        break;
+                }
+            }
+            return prevState;
+        });
+    };
+
+    const alertButtonClick = (actionType: ActionType) => {
+        switch (actionType) {
+            case 'Positive':
+                updateAfterSetting(true);
+                break;
+            case 'Negative':
+                updateAfterSetting(false);
+                break;
+            case 'Neutral':
+                setState((prevState) => ({
+                    ...prevState,
+                    alertProperty: undefined,
+                }));
+                break;
         }
     };
 
-    const Toggler = () => isPrimary(theme) ? <ToggleThemeSun/> : <ToggleThemeMoon/>;
-    const ShowGame = (): JSX.Element => gameBoard;
-
-    const restoreBoard = (board: Board, index: number) => {
-        if (window.confirm('confirmation to reset to chosen state')) {
-            setBoard(board);
-            setMoveList(oldArray => oldArray.filter((_, i) => i <= index));
-        }
+    const restoreBoard = (index: number) => {
+        setState((prevState) => {
+            const filtered = moveLog.filter((_, i) => i <= index);
+            const removedMoveLog = moveLog.filter((_, i) => i > index);
+            const { redo } = prevState;
+            return {
+                ...prevState,
+                alertProperty: undefined,
+                board: restoreBoardFromMoveLog({
+                    gridOption,
+                    moveLog: filtered,
+                }),
+                redo: [...redo, { removedMoveLog }],
+                moveLog: filtered,
+            };
+        });
     };
 
-    const ShowMoveHistory = () => {
-        return (
-            <MoveHistoryContainer>
-                <MoveHistoryTitle>Move Log</MoveHistoryTitle>
-                {moveList.map((move, index) => <MovesMade onClick={() => restoreBoard(move.board, index)} key={index}>{`${index + 1}. ${move.moveNotation}`}</MovesMade>)}
-            </MoveHistoryContainer>
-        );
+    const setGameOptionState = (type: GameOption, content: string) => {
+        setState((prevState) => ({
+            ...prevState,
+            alertProperty: {
+                type,
+                requireButton: true,
+                content,
+            },
+        }));
     };
 
     return (
-        <ThemeProvider theme={theme}>
-            <GlobalStyle/>
-            <Container>
-                <HalfContainer>
-                    <ChooserContainer>
-                        Dimension: <Selector valueList={[3, 4, 5]} dimension={dimension} updateDimension={updateDimension} />
-                        AI Level: <Selector valueList={[1, 2, 3, 4]} dimension={depth} updateDimension={setDepth} />
-                    </ChooserContainer>
-                    <div><ShowMoveHistory/></div>
-                </HalfContainer>
-                <HalfContainer>
-                    <CenteredPanel>
-                        <ToggleThemeContainer>
-                            <ToggleThemeButton onClick={() => setTheme(getTheme(theme))}>
-                                <Toggler/>
-                            </ToggleThemeButton>
-                        </ToggleThemeContainer>
-                    </CenteredPanel>
-                    <Panel>
-                        <AppGameLabel checked={firstPlayerAI} side={'X'} onChange={() => setFirstPlayerAI(prev => !prev)}/>
-                        <AppGameLabel checked={secondPlayerAI} side={'O'} onChange={() => setSecondPlayerAI(prev => !prev)}/>
-                    </Panel>
-                    <CenteredPanel><ShowGame/></CenteredPanel>
-                    <Panel>
-                        <div><GameButton onClick={() => {
-                            if (window.confirm('confirmation to restart game')) {
-                                reset(dimension);
-                            }
-                        }}>Restart</GameButton></div>
-                        <div><GameParagraph>{message}</GameParagraph></div>
-                    </Panel>
-                </HalfContainer>
-            </Container>
+        <ThemeProvider theme={secondaryTheme}>
+            <link rel="preconnect" href="https://fonts.googleapis.com" />
+            <link
+                rel="preconnect"
+                href="https://fonts.gstatic.com"
+                crossOrigin="anonymous"
+            />
+            <link
+                href="https://fonts.googleapis.com/css2?family=Roboto:wght@300&display=swap"
+                rel="stylesheet"
+            />
+            <GlobalStyle />
+            <MenuBar>
+                <Menuitem>MinimalTicTacToe</Menuitem>
+            </MenuBar>
+            <LoadGamePopup
+                closePopup={() => {
+                    setState((prevState) => {
+                        return {
+                            ...prevState,
+                            showLoadGamePopup: false,
+                        };
+                    });
+                }}
+                show={showLoadGamePopup}
+                buttonClick={alertButtonClick}
+                restoreGameFromFile={restoreGameFromFile}
+            />
+            <MultiChoiceAlert
+                closeAlert={() => {
+                    setState((prevState) => {
+                        const { alertProperty } = prevState;
+                        if (alertProperty) {
+                            return {
+                                ...prevState,
+                                alertProperty: undefined,
+                            };
+                        }
+                        return prevState;
+                    });
+                }}
+                alertProperty={alertProperty}
+                buttonClick={alertButtonClick}
+            />
+            <GridContainer>
+                <GridTemplateColumns>
+                    <Setting
+                        minimaxOption={minimaxOption}
+                        gridOption={gridOption}
+                        moveOption={moveOption}
+                        gameOption={gameOption}
+                        playerOption={playerOption}
+                        updateGridOption={updateGridOption}
+                        updateMinimaxOption={updateMinimaxOption}
+                        updateGameOption={updateGameOption}
+                        updateMoveOption={updateMoveOption}
+                        updatePlayerOption={updatePlayerOption}
+                    />
+                </GridTemplateColumns>
+                <GridTemplateColumns>
+                    <TicTacToe
+                        updateBoard={updateTicTacToeBoard}
+                        board={board}
+                    />
+                </GridTemplateColumns>
+                <GridTemplateColumns>
+                    <MoveHistory
+                        moveLog={moveLog}
+                        restoreBoard={restoreBoard}
+                    />
+                </GridTemplateColumns>
+            </GridContainer>
         </ThemeProvider>
     );
 };
 
-const Container = styled.div`
-    justify-content: space-evenly;
+const MenuBar = styled.div`
+    width: 100%;
+    background-color: #1e1e1e;
     display: flex;
+    justify-content: space-around;
+    padding: 5px 0 5px 0;
 `;
 
-const HalfContainer = styled.div`
+const Menuitem = styled.div`
+    color: ${({ theme }) => theme.theme.primaryColor};
+    font-size: 2em;
+    &:hover {
+        cursor: pointer;
+    }
+`;
+
+const GridContainer = styled.div`
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1.5fr 1fr;
+    @media (max-width: 1297px) {
+        grid-template-columns: 1fr 2fr 1fr;
+    }
+    @media (max-width: 731px) {
+        grid-template-columns: 1fr 1fr;
+    }
+`;
+
+const GridTemplateColumns = styled.div`
+    width: 100%;
+    height: 50%;
     margin: 10px 0 10px 0;
-    flex: 0.5;
-`;
-
-const Panel = styled.div`
-    margin: 25px 0 25px 0;
-    justify-content: space-between;
-    align-items: center;
-    display: flex;
-`;
-
-const CenteredPanel = styled(Panel)`
-    justify-content: center;
-`;
-
-const ToggleThemeContainer = styled.div`
-    display: flex;
-    align-items: center;
-    justify-content: center;
-`;
-
-const ToggleThemeButton = styled.div`
-    border-radius: 50%;
-    background-color: ${({ theme }) => theme.theme.secondaryColor};
-    width: 35px;
-    height: 35px;
-    border: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    &:hover {
-        cursor: pointer;
-    }
-`;
-
-const ToggleTheme = css`
-    letter-spacing: 1px !important;
-    color: ${({ theme }) => theme.theme.primaryColor};
-    font-size: 1.5em !important;
-`;
-
-const ToggleThemeSun = styled(FaSun)`${ToggleTheme}`;
-const ToggleThemeMoon = styled(FaMoon)`${ToggleTheme}`;
-
-const GeneralStyle = css`
-    color: ${({ theme }) => theme.theme.secondaryColor};
-    font-size: 1.5em;
-`;
-
-const GameLabel = styled.label`${GeneralStyle}`;
-const GameButton = styled.button`
-    ${GeneralStyle}
-    background-color: transparent;
-    border: none;
-    &:hover {
-        cursor: pointer;
-    }
-`;
-const GameParagraph = styled.p`${GeneralStyle}`;
-
-const TicTacToeTile = styled.td`
-    border: 1px solid ${({ theme }) => theme.theme.secondaryColor};
-    padding: 8px;
-    width: 100px;
-    height: 100px;
-    cursor: pointer;
-    font-size: 5em;
-    text-align: center;
-    color: ${({ theme }) => theme.theme.secondaryColor};
-    &:hover {
-        background-color: ${({ theme }) => theme.theme.hoverColor};
-    }
-`;
-
-// left
-const Chooser = styled.div`
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    width: 100%;
-`;
-
-const ChooseSelect = styled.select`
-    font-size: 1.1em;
-    margin: 0 0 15px 0;
-    background-color: ${({ theme }) => theme.theme.secondaryColor};
-    border: 3px solid ${({ theme }) => theme.theme.secondaryColor};
-    color: ${({ theme }) => theme.theme.primaryColor};
-    letter-spacing: 1.5px;
-    font-family: 'Orbitron', sans-serif !important;
-`;
-
-const ChooserContainer = styled.div`
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    color: ${({ theme }) => theme.theme.secondaryColor};
-`;
-
-const MovesMade = styled.div`
-    padding: 10px;
-    width: 45%;
-    height: fit-content;
-    ${GeneralStyle};
-    cursor: pointer;
-    margin: 1px;
-    border: 1px solid ${({ theme }) => theme.theme.secondaryColor};
-`;
-
-const MoveHistoryContainer = styled.div`
-    display: inline-flex;
-    flex-wrap: wrap;
-    width: 100%;
-`;
-
-const MoveHistoryTitle = styled.div`
-    width: 100%;
-    text-align: center;
-    ${GeneralStyle};
-    padding: 0 0 15px 0;
 `;
 
 export default App;

@@ -1,8 +1,15 @@
 # Minimal Tic Tac Toe
 
-### A very simple tic tac toe game completed for fun with a simple UI design that is. The UI is so simple that it loss its beauty. So please, excuse me for my poor UI
+## Game Features
 
-### Only for PC although a working PWA is provided
+| No. | Features                    |
+| --- | --------------------------- |
+| 1.  | Restart new game            |
+| 2.  | Save game/ Load saved game  |
+| 3.  | Show move history           |
+| 4.  | Choose AI level from 1 to 4 |
+| 5.  | Undo previous move          |
+| 6.  | Choose grid size            |
 
 **3x3**
 ![3x3 sample](img/dimension3.jpg)
